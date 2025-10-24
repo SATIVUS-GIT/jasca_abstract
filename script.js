@@ -62,7 +62,7 @@ async function checkDocx(file) {
     // 1. .docx (zip) を読み込む
     const arrayBuffer = await file.arrayBuffer();
     updateProgress('ファイルを解凍しています...');
-    const zip = await JSZip.loadAsync(arrayBuffer);
+    const zip = await JSZip.loadAsync(arrayBuffer); // J (大文字) に修正済み
     
     // 2. document.xml と styles.xml を取り出す
     const docFile = zip.file('word/document.xml');
@@ -96,7 +96,7 @@ async function checkDocx(file) {
     results.push(...checkStyleDefinitions(stylesMap));
 
     // --- チェック2: 実際の本
-    results.push(checkPageCount(docXml));
+    results.push(checkPageCount(docXml)); // エラー箇所
     results.push(checkRequiredStyles(paragraphs));
     results.push(checkTextLength(paragraphs));
     results.push(checkProhibitedItems(docXml, zip));
@@ -128,10 +128,10 @@ function displayResults(results) {
 
 
 // --- ここから下はv3と同じ (解析関数とチェック関数群) ---
-// (v3のscript.jsからコピー＆ペーストしてください)
 
 /**
  * a. styles.xml を解析して、スタイル定義のマップを作成する
+ * 【v5 修正】 querySelector に 'w\\:' のエスケープを追加
  */
 function parseStyles(styleXml) {
     const stylesMap = new Map();
@@ -146,19 +146,19 @@ function parseStyles(styleXml) {
         const props = {};
         
         // 太字
-        const boldNode = node.querySelector('rPr > b');
+        const boldNode = node.querySelector('w\\:rPr > w\\:b'); // 修正
         if (boldNode) props.bold = true;
         
         // サイズ (1/2 pt)
-        const sizeNode = node.querySelector('rPr > sz');
+        const sizeNode = node.querySelector('w\\:rPr > w\\:sz'); // 修正
         if (sizeNode) props.size = parseInt(sizeNode.getAttribute('w:val'), 10);
         
         // 配置
-        const alignNode = node.querySelector('pPr > jc');
+        const alignNode = node.querySelector('w\\:pPr > w\\:jc'); // 修正
         if (alignNode) props.align = alignNode.getAttribute('w:val');
         
         // 行間 (1/20 pt)
-        const lineNode = node.querySelector('pPr > spacing');
+        const lineNode = node.querySelector('w\\:pPr > w\\:spacing'); // 修正
         if (lineNode) props.line = parseInt(lineNode.getAttribute('w:line'), 10);
         
         stylesMap.set(styleId, props);
@@ -168,12 +168,13 @@ function parseStyles(styleXml) {
 
 /**
  * b. document.xml を解析して、段落とスタイルのリストを作成する
+ * 【v5 修正】 querySelector に 'w\\:' のエスケープを追加
  */
 function parseDocument(docXml) {
     const paragraphs = Array.from(docXml.getElementsByTagName('w:p'));
     
     return paragraphs.map(p => {
-        const styleNode = p.querySelector('pPr > pStyle');
+        const styleNode = p.querySelector('w\\:pPr > w\\:pStyle'); // 修正
         const styleName = styleNode ? styleNode.getAttribute('w:val') : null;
         
         const textNodes = Array.from(p.getElementsByTagName('w:t'));
@@ -201,7 +202,12 @@ function checkStyleDefinitions(stylesMap) {
     for (const rule of rules) {
         const style = stylesMap.get(rule.id);
         if (!style) {
-            results.push({ pass: false, message: `✗ スタイル定義: テンプレートの必須スタイル「${rule.id} (${rule.name})」がstyles.xml内に見つかりません。` });
+            // 副題(subtitle)や参照文献(reference)はオプションなので、失敗(fail)ではなく警告(warn)にする
+            if (rule.id === 'summery_subtitle' || rule.id === 'summery_reference') {
+                results.push({ warn: true, message: `△ スタイル定義: オプションのスタイル「${rule.id} (${rule.name})」が見つかりません。 (使用しない場合は問題ありません)` });
+            } else {
+                results.push({ pass: false, message: `✗ スタイル定義: テンプレートの必須スタイル「${rule.id} (${rule.name})」がstyles.xml内に見つかりません。` });
+            }
             continue;
         }
         
@@ -210,6 +216,7 @@ function checkStyleDefinitions(stylesMap) {
         if (rule.props.bold && !style.bold) errors.push('太字ではありません');
         if (rule.props.size && style.size !== rule.props.size) errors.push(`文字サイズが${rule.props.size/2}ptではありません`);
         if (rule.props.align && style.align !== rule.props.align) errors.push('配置が指定と異なります');
+        // 'summery_body' と 'summery_reference' のみ行間チェック
         if (rule.props.line && style.line !== rule.props.line) errors.push('行間が13ptではありません');
         
         if (errors.length > 0) {
@@ -223,10 +230,15 @@ function checkStyleDefinitions(stylesMap) {
 
 /**
  * [ルール] A4縦長1枚か (簡易チェック)
+ * 【v5 修正】 querySelector に 'w\\:' のエスケープを追加
  */
 function checkPageCount(docXml) {
-    const hasPageBreak = docXml.querySelector('br[w:type="page"]') || docXml.querySelector('sectPr');
-    if (hasPageBreak) {
+    // 'w:br' タグで w:type="page" 属性を持つもの (改ページ)
+    const pageBreak = docXml.querySelector('w\\:br[w\\:type="page"]'); // 修正
+    // 'w:sectPr' タグ (セクション区切り、これも改ページを伴うことが多い)
+    const sectionBreak = docXml.querySelector('w\\:sectPr'); // 修正
+    
+    if (pageBreak || sectionBreak) {
         return { pass: false, message: '✗ ページ数: 改ページコードまたはセクション区切りが検出されました。A4・1枚に収まらない可能性があります。' };
     }
     return { pass: true, message: '✓ ページ数: 明示的な改ページはありません。 (※最終的にはWordで開いて1枚に収まっているか目視確認してください)' };
@@ -262,6 +274,10 @@ function checkTextLength(paragraphs) {
         .filter(p => p.style === 'summery_body')
         .map(p => p.text)
         .join('');
+    
+    if (bodyText.length === 0) {
+         return { pass: false, message: '✗ 最低文字数: 本文 (`summery_body` スタイル) にテキストがありません。' };
+    }
 
     const charCount = bodyText.replace(/\s/g, '').length;
     const alphaRatio = (bodyText.match(/[a-zA-Z]/g) || []).length / (bodyText.length || 1);
@@ -286,7 +302,8 @@ function checkTextLength(paragraphs) {
 function checkProhibitedItems(docXml, zip) {
     const text = docXml.documentElement.textContent;
     const hasNote = text.includes('注');
-    const hasDrawing = docXml.getElementsByTagName('w:drawing').length > 0;
+    // <w:drawing> (図形) または <w:pict> (古い形式の図)
+    const hasDrawing = docXml.getElementsByTagName('w:drawing').length > 0 || docXml.getElementsByTagName('w:pict').length > 0;
     const mediaFiles = zip.folder('word/media');
 
     let errors = [];
@@ -322,26 +339,27 @@ function checkHalfWidthChars(paragraphs) {
 function checkKeywords(paragraphs) {
     const keywordPara = paragraphs.find(p => p.style === 'summery_keywords');
     if (!keywordPara) {
+        // (スタイル使用チェックでエラーが出るので、ここでは重複してエラーを出さない)
         return { pass: true, message: '✓ キーワード書式: (スタイル未適用のためスキップ)' };
     }
     
     const text = keywordPara.text.trim();
     if (text.startsWith('キーワード:')) {
-        const count = text.replace('キーワード:', '').split('、').filter(Boolean).length;
+        const count = text.replace('キーワード:', '').split('、').filter(s => s.trim().length > 0).length;
         if (count >= 3 && count <= 5) {
             return { pass: true, message: `✓ キーワード書式 (日本語): 書式OK（${count}語）` };
         }
         return { pass: false, message: `✗ キーワード書式 (日本語): 3～5語必要ですが、${count}語検出されました。` };
 
     } else if (text.startsWith('Keywords:')) {
-        const count = text.replace('Keywords:', '').split(',').filter(Boolean).length;
+        const count = text.replace('Keywords:', '').split(',').filter(s => s.trim().length > 0).length;
         if (count >= 3 && count <= 5) {
             return { pass: true, message: `✓ キーワード書式 (英語): 書式OK（${count}語）` };
         }
         return { pass: false, message: `✗ キーワード書式 (英語): 3～5語必要ですが、${count}語検出されました。` };
 
     } else {
-        return { pass: false, message: '✗ キーワード書式: 「キーワード:」または「キーワード:」で始まっていません。' };
+        return { pass: false, message: '✗ キーワード書式: 「キーワード:」または「Keywords:」で始まっていません。' };
     }
 }
 
@@ -370,6 +388,7 @@ function checkInTextCitations(paragraphs) {
         .map(p => p.text)
         .join('');
     
+    // [著者姓 年: ページ] の形式
     const citationRegex = /\[[^\]]+ \d{4}: [^\]]+\]/g; 
     const fullBracketRegex = /\[.*?\]/g;
     
