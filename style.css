@@ -1,60 +1,279 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
-<html>
-<head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <meta http-equiv="Content-Style-Type" content="text/css">
-  <title></title>
-  <meta name="Generator" content="Cocoa HTML Writer">
-  <meta name="CocoaVersion" content="2685.1">
-  <style type="text/css">
-    p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; -webkit-text-stroke: #000000}
-    p.p2 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; -webkit-text-stroke: #000000; min-height: 14.0px}
-    p.p3 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px 'Hiragino Sans'; -webkit-text-stroke: #000000}
-    span.s1 {font-kerning: none}
-    span.s2 {font: 12.0px Helvetica; font-kerning: none}
-  </style>
-</head>
-<body>
-<p class="p1"><span class="s1">body {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>font-family: sans-serif;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>margin: 20px;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>background-color: #f9f9f9;</span></p>
-<p class="p1"><span class="s1">}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">h1, h2 {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>color: #333;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>border-bottom: 2px solid #005a9c;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>padding-bottom: 5px;</span></p>
-<p class="p1"><span class="s1">}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">#pdf-upload {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>margin: 20px 0;</span></p>
-<p class="p1"><span class="s1">}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">#results-container {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>margin-top: 20px;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>border: 1px solid #ccc;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>background-color: #fff;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>padding: 15px;</span></p>
-<p class="p1"><span class="s1">}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">#results p {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>margin: 8px 0;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>padding: 8px;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>border-radius: 4px;</span></p>
-<p class="p1"><span class="s1">}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p3"><span class="s2">/* </span><span class="s1">判定結果のスタイル</span><span class="s2"> */</span></p>
-<p class="p1"><span class="s1">.pass {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>background-color: #e6f7e6;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>color: #006400;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>border: 1px solid #c3e6cb;</span></p>
-<p class="p1"><span class="s1">}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1">.fail {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>background-color: #f8d7da;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>color: #721c24;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>border: 1px solid #f5c6cb;</span></p>
-<p class="p1"><span class="s1">}</span></p>
-</body>
-</html>
+// --- DOM要素の取得 ---
+const docxUpload = document.getElementById('docx-upload');
+const resultsDiv = document.getElementById('results');
+
+// --- イベントリスナーの設定 ---
+docxUpload.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    if (file) {
+        checkDocx(file);
+    }
+});
+
+/**
+ * .docxを解析し、全チェックを実行するメイン関数
+ * @param {File} file - アップロードされた.docxファイル
+ */
+async function checkDocx(file) {
+    resultsDiv.innerHTML = '<p>Wordファイル (.docx) を解析中です...</p>';
+    
+    const results = []; // チェック結果
+    let docXml = null;   // document.xml の中身
+    let zip = null;
+
+    try {
+        // 1. .docx (zip) を読み込む
+        const arrayBuffer = await file.arrayBuffer();
+        zip = await jszip.loadAsync(arrayBuffer);
+        
+        // 2. document.xml を取り出す
+        const xmlFile = zip.file('word/document.xml');
+        if (!xmlFile) {
+            throw new Error('word/document.xml が見つかりません。');
+        }
+        const xmlContent = await xmlFile.async('string');
+        
+        // 3. XMLをパースする
+        const parser = new DOMParser();
+        docXml = parser.parseFromString(xmlContent, 'application/xml');
+
+        // 4. XMLから段落(w:p)のリストを取得
+        const paragraphs = Array.from(docXml.getElementsByTagName('w:p'));
+        
+        // 5. 各段落のスタイルとテキストを抽出
+        const styledParagraphs = paragraphs.map(p => {
+            const styleNode = p.querySelector('pPr > pStyle');
+            const styleName = styleNode ? styleNode.getAttribute('w:val') : null;
+            
+            const textNodes = Array.from(p.getElementsByTagName('w:t'));
+            const text = textNodes.map(t => t.textContent).join('');
+            
+            return { style: styleName, text: text, node: p };
+        });
+
+        // --- ここからチェック処理 ---
+        
+        // [ルール] A4縦長1枚 
+        results.push(checkPageCount(paragraphs));
+
+        // [ルール] 必須スタイルと順序のチェック
+        results.push(checkRequiredStyles(styledParagraphs));
+
+        // [ルール] 本文の最低字数 (日本語1500字 / 英語500ワード) 
+        results.push(checkTextLength(styledParagraphs));
+
+        // [ルール] 要旨に注と図版 (写真・図・表) は入れない 
+        results.push(checkProhibitedItems(docXml, zip));
+
+        // [ルール] アルファベットと数字は、すべて半角 [cite: 8, 39]
+        results.push(checkHalfWidthChars(styledParagraphs));
+
+        // [ルール] キーワード (3~5語) の書式 [cite: 15, 25, 26, 77]
+        results.push(checkKeywords(styledParagraphs));
+
+        // [ルール] 本文の段落字下げ [cite: 19, 69]
+        results.push(checkIndentation(styledParagraphs));
+
+        // [ルール] 参照文献の挙示方法 [cite: 20, 21, 71]
+        results.push(checkInTextCitations(styledParagraphs));
+
+
+    } catch (error) {
+        console.error('DOCXの解析に失敗しました:', error);
+        results.push({ pass: false, message: `✗ 解析エラー: ${error.message} ファイルが破損しているか、標準的でない.docxファイルの可能性があります。` });
+    }
+
+    displayResults(results);
+}
+
+/**
+ * チェック結果を画面に表示する
+ */
+function displayResults(results) {
+    resultsDiv.innerHTML = ''; // 既存の結果をクリア
+    results.forEach(result => {
+        const p = document.createElement('p');
+        p.textContent = result.message;
+        p.className = result.pass ? 'pass' : (result.warn ? 'warn' : 'fail');
+        resultsDiv.appendChild(p);
+    });
+}
+
+// --- ここから下は個別のチェック関数群 ---
+
+/**
+ * [ルール] A4縦長1枚か (簡易チェック)
+ * .docxは動的にページが決まるため、正確な判定は不可能です。
+ * ここでは「改ページコード」の有無で簡易的にチェックします。
+ */
+function checkPageCount(paragraphs) {
+    const hasPageBreak = paragraphs.some(p => p.querySelector('br[w:type="page"]') || p.querySelector('sectPr'));
+    if (hasPageBreak) {
+        return { pass: false, message: '✗ ページ数: 改ページコードまたはセクション区切りが検出されました。A4・1枚に収まらない可能性があります。 ' };
+    }
+    return { pass: true, message: '✓ ページ数: 明示的な改ページはありません。 (※最終的にはWordで開いて1枚に収まっているか目視確認してください)' };
+}
+
+/**
+ * [ルール] 必須スタイルが使われているか 
+ * テンプレートの必須スタイル名  でチェック
+ */
+function checkRequiredStyles(styledParagraphs) {
+    const styles = styledParagraphs.map(p => p.style).filter(Boolean); // nullを除去
+    const hasTitle = styles.includes('summery_title');
+    const hasName = styles.includes('summery_name');
+    const hasBody = styles.includes('summery_body');
+    const hasKeywords = styles.includes('summery_keywords');
+
+    if (hasTitle && hasName && hasBody && hasKeywords) {
+        return { pass: true, message: '✓ 必須スタイル: 演題名・氏名・本文・キーワードのスタイルが適用されています。 [cite: 5, 41, 54, 57]' };
+    }
+    let missing = [];
+    if (!hasTitle) missing.push('summery_title (演題名)');
+    if (!hasName) missing.push('summery_name (氏名)');
+    if (!hasBody) missing.push('summery_body (本文)');
+    if (!hasKeywords) missing.push('summery_keywords (キーワード)');
+    
+    return { pass: false, message: `✗ 必須スタイル: 以下の必須スタイルが見つかりません: ${missing.join(', ')}。テンプレートを使用してください。 [cite: 2, 31, 54, 57]` };
+}
+
+/**
+ * [ルール] 本文の最低字数 
+ * 'summery_body' スタイルのテキストだけをカウント
+ */
+function checkTextLength(styledParagraphs) {
+    const bodyText = styledParagraphs
+        .filter(p => p.style === 'summery_body')
+        .map(p => p.text)
+        .join('');
+
+    const charCount = bodyText.replace(/\s/g, '').length;
+    const alphaRatio = (bodyText.match(/[a-zA-Z]/g) || []).length / (bodyText.length || 1);
+
+    if (alphaRatio > 0.5) { // 英語
+        const wordCount = bodyText.trim().split(/\s+/).filter(Boolean).length;
+        if (wordCount >= 500) {
+            return { pass: true, message: `✓ 最低ワード数 (英語): 500ワード以上（本文 ${wordCount}ワード） ` };
+        }
+        return { pass: false, message: `✗ 最低ワード数 (英語): 500ワード以上必要ですが、本文は ${wordCount}ワードです。 ` };
+    } else { // 日本語
+        if (charCount >= 1500) {
+            return { pass: true, message: `✓ 最低文字数 (日本語): 1500字以上（本文 ${charCount}字） ` };
+        }
+        return { pass: false, message: `✗ 最低文字数 (日本語): 1500字以上必要ですが、本文は ${charCount}字です。 ` };
+    }
+}
+
+/**
+ * [ルール] 禁止項目 (注、図版) 
+ */
+function checkProhibitedItems(docXml, zip) {
+    const text = docXml.documentElement.textContent;
+    const hasNote = text.includes('注');
+    const hasDrawing = docXml.getElementsByTagName('w:drawing').length > 0;
+    const mediaFiles = zip.folder('word/media');
+
+    let errors = [];
+    if (hasNote) {
+        errors.push('「注」の文字');
+    }
+    if (hasDrawing || (mediaFiles && Object.keys(mediaFiles.files).length > 0)) {
+        errors.push('図版 (写真・図・表)');
+    }
+    
+    if (errors.length > 0) {
+        return { pass: false, message: `✗ 禁止項目: ${errors.join('、')} が検出されました。これらは要旨に含められません。 ` };
+    }
+    return { pass: true, message: '✓ 禁止項目: 「注」や図版は検出されませんでした。 ' };
+}
+
+/**
+ * [ルール] アルファベットと数字は、すべて半角か [cite: 8, 39]
+ */
+function checkHalfWidthChars(styledParagraphs) {
+    const fullText = styledParagraphs.map(p => p.text).join('');
+    const fullWidthChars = fullText.match(/[０-９Ａ-Ｚａ-ｚ]/g);
+    
+    if (fullWidthChars) {
+        return { pass: false, message: `✗ 文字幅: 全角の英数字が検出されました (例: ${fullWidthChars[0]})。すべて半角にしてください。 [cite: 8, 39]` };
+    }
+    return { pass: true, message: '✓ 文字幅: 全角の英数字は検出されませんでした。 [cite: 8, 39]' };
+}
+
+/**
+ * [ルール] キーワードの書式 [cite: 15, 25, 26, 77]
+ */
+function checkKeywords(styledParagraphs) {
+    const keywordPara = styledParagraphs.find(p => p.style === 'summery_keywords');
+    if (!keywordPara) {
+        return { pass: false, message: '✗ キーワード: `summery_keywords` スタイルが適用された段落が見つかりません。' };
+    }
+    
+    const text = keywordPara.text.trim();
+    if (text.startsWith('キーワード:')) {
+        const count = text.replace('キーワード:', '').split('、').filter(Boolean).length;
+        if (count >= 3 && count <= 5) {
+            return { pass: true, message: `✓ キーワード (日本語): 書式OK（${count}語） [cite: 25, 77]` };
+        }
+        return { pass: false, message: `✗ キーワード (日本語): 3～5語必要ですが、${count}語検出されました。 [cite: 5, 25, 77]` };
+
+    } else if (text.startsWith('Keywords:')) {
+        const count = text.replace('Keywords:', '').split(',').filter(Boolean).length;
+        if (count >= 3 && count <= 5) {
+            return { pass: true, message: `✓ キーワード (英語): 書式OK（${count}語） [cite: 26, 77]` };
+        }
+        return { pass: false, message: `✗ キーワード (英語): 3～5語必要ですが、${count}語検出されました。 [cite: 5, 26, 77]` };
+
+    } else {
+        return { pass: false, message: '✗ キーワード: 「キーワード:」または「Keywords:」で始まっていません。 [cite: 25, 26, 77]' };
+    }
+}
+
+/**
+ * [ルール] 本文の段落字下げ [cite: 19, 69]
+ * (簡易チェック: 'summery_body'のテキストが全角スペースで始まるか)
+ */
+function checkIndentation(styledParagraphs) {
+    const bodyParas = styledParagraphs.filter(p => p.style === 'summery_body' && p.text.length > 0);
+    const notIndented = bodyParas.filter(p => !p.text.startsWith('　')); // 全角スペース
+
+    if (bodyParas.length > 0 && notIndented.length > 0) {
+        return { pass: false, message: `✗ 字下げ: 本文 ${bodyParas.length}段落中、${notIndented.length}段落が全角スペースで始まっていません。 [cite: 19, 69]` };
+    }
+    if (bodyParas.length === 0) {
+        return { pass: true, message: '✓ 字下げ: (本文テキストが空のためスキップ)' };
+    }
+    return { pass: true, message: '✓ 字下げ: 本文の全段落が全角スペースで始まっています。 [cite: 19, 69]' };
+}
+
+/**
+ * [ルール] 参照文献の挙示方法 [cite: 20, 21, 71]
+ * (簡易チェック: 本文中に [...] があるか)
+ */
+function checkInTextCitations(styledParagraphs) {
+    const bodyText = styledParagraphs
+        .filter(p => p.style === 'summery_body')
+        .map(p => p.text)
+        .join('');
+    
+    // [著者姓 年: ページ] の形式
+    const citationRegex = /\[[^\]]+ \d{4}: [^\]]+\]/g; 
+    const fullBracketRegex = /\[.*?\]/g; // 全角・半角問わず
+    
+    const hasCitations = citationRegex.test(bodyText);
+    const hasBrackets = fullBracketRegex.test(bodyText);
+
+    // 参照文献スタイルがあるか
+    const hasRefList = styledParagraphs.some(p => p.style === 'summery_reference');
+
+    if (hasRefList && !hasBrackets) {
+        return { warn: true, message: '⚠ 参照文献: 参照文献リストがありますが、本文中に [ ] 形式の引用が見つかりません。 [cite: 20, 21, 71]' };
+    }
+    if (hasBrackets && !hasCitations) {
+        return { warn: true, message: '⚠ 参照文献: 本文中に [ ] 形式の引用がありますが、書式 [著者姓 年: ページ] と一致しない可能性があります。 [cite: 20, 21, 71]' };
+    }
+    if (hasCitations) {
+         return { pass: true, message: '✓ 参照文献: 本文中に指定の書式 [著者姓 年: ページ] と思われる引用が見つかりました。 [cite: 20, 21, 71]' };
+    }
+    return { pass: true, message: '✓ 参照文献: (本文中の引用は見当たりませんでした)' };
+}
