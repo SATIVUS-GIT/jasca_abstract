@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JASCA 発表要旨チェッカー (v4: ボタン・進捗表示)</title>
+    <title>JASCA 発表要旨チェッカー (v8: ダッシュボード)</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <h1>JASCA 発表要旨チェッカー (v4: 書式定義チェック)</h1>
+    <h1>JASCA 発表要旨チェッカー (v8: ダッシュボード)</h1>
     <p>
-        「要旨テンプレート」 に従って作成した Wordファイル (.docx) を選択してください。
+        発表要旨の Wordファイル (.docx) を選択してください。<br>
+        このツールは、ファイルから抽出した情報を規定のルールと比較し、目視確認を支援します。
     </p>
 
     <input type="file" id="docx-upload" 
@@ -22,7 +23,7 @@
         <h2>チェック結果</h2>
         <div id="results">
             <p>ファイルを選択してください...</p>
-        </div>
+            </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
