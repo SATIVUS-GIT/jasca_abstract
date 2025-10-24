@@ -1,137 +1,77 @@
-// --- DOM要素の取得 ---
-const docxUpload = document.getElementById('docx-upload');
-const resultsDiv = document.getElementById('results');
-
-// --- イベントリスナーの設定 ---
-docxUpload.addEventListener('change', (event) => {
-    const file = event.target.files[0];
-    if (file) {
-        checkDocx(file);
-    }
-});
-
-/**
- * .docxを解析し、全チェックを実行するメイン関数
- * @param {File} file - アップロードされた.docxファイル
- */
-async function checkDocx(file) {
-    resultsDiv.innerHTML = '<p>Wordファイル (.docx) を解析中です...</p>';
-    
-    let results = []; // チェック結果
-    
-    try {
-        // 1. .docx (zip) を読み込む
-        const arrayBuffer = await file.arrayBuffer();
-        const zip = await jszip.loadAsync(arrayBuffer);
-        
-        // 2. document.xml と styles.xml を取り出す
-        const docFile = zip.file('word/document.xml');
-        const styleFile = zip.file('word/styles.xml');
-
-        if (!docFile || !styleFile) {
-            throw new Error('word/document.xml または word/styles.xml が見つかりません。');
-        }
-
-        // 3. 両方のXMLを並行して読み込む
-        const [docContent, styleContent] = await Promise.all([
-            docFile.async('string'),
-            styleFile.async('string')
-        ]);
-        
-        // 4. XMLをパースする
-        const parser = new DOMParser();
-        const docXml = parser.parseFromString(docContent, 'application/xml');
-        const styleXml = parser.parseFromString(styleContent, 'application/xml');
-
-        // 5. スタイル定義(styles.xml)を解析
-        const stylesMap = parseStyles(styleXml);
-        
-        // 6. 本文(document.xml)を解析
-        const paragraphs = parseDocument(docXml);
-
-        // --- ここからチェック処理 ---
-        
-        // --- チェック1: スタイル定義自体のチェック ---
-        results.push(...checkStyleDefinitions(stylesMap));
-
-        // --- チェック2: 実際の本
-        // [ルール] A4縦長1枚
-        results.push(checkPageCount(docXml));
-
-        // [ルール] 必須スタイルが本文中で使われているか
-        results.push(checkRequiredStyles(paragraphs));
-
-        // [ルール] 本文の最低字数 (日本語1500字 / 英語500ワード)
-        results.push(checkTextLength(paragraphs));
-
-        // [ルール] 要旨に注と図版 (写真・図・表) は入れない
-        results.push(checkProhibitedItems(docXml, zip));
-
-        // [ルール] アルファベットと数字は、すべて半角
-        results.push(checkHalfWidthChars(paragraphs));
-
-        // [ルール] キーワード (3~5語) の書式
-        results.push(checkKeywords(paragraphs));
-
-        // [ルール] 本文の段落字下げ
-        results.push(checkIndentation(paragraphs));
-
-        // [ルール] 参照文献の挙示方法
-        results.push(checkInTextCitations(paragraphs));
-
-    } catch (error) {
-        console.error('DOCXの解析に失敗しました:', error);
-        results.push({ pass: false, message: `✗ 解析エラー: ${error.message} ファイルが破損しているか、標準的でない.docxファイルの可能性があります。` });
-    }
-
-    displayResults(results);
+body {
+    font-family: sans-serif;
+    margin: 20px;
+    background-color: #f9f9f9;
 }
 
-/**
- * a. styles.xml を解析して、スタイル定義のマップを作成する
- */
-function parseStyles(styleXml) {
-    const stylesMap = new Map();
-    const styleNodes = styleXml.getElementsByTagName('w:style');
-    
-    for (const node of styleNodes) {
-        if (node.getAttribute('w:type') !== 'paragraph') continue;
-        
-        const styleId = node.getAttribute('w:styleId');
-        if (!styleId) continue;
-        
-        const props = {};
-        
-        // 太字
-        const boldNode = node.querySelector('rPr > b');
-        if (boldNode) props.bold = true;
-        
-        // サイズ (1/2 pt)
-        const sizeNode = node.querySelector('rPr > sz');
-        if (sizeNode) props.size = parseInt(sizeNode.getAttribute('w:val'), 10);
-        
-        // 配置
-        const alignNode = node.querySelector('pPr > jc');
-        if (alignNode) props.align = alignNode.getAttribute('w:val');
-        
-        // 行間 (1/20 pt)
-        const lineNode = node.querySelector('pPr > spacing');
-        if (lineNode) props.line = parseInt(lineNode.getAttribute('w:line'), 10);
-        
-        stylesMap.set(styleId, props);
-    }
-    return stylesMap;
+h1, h2 {
+    color: #333;
+    border-bottom: 2px solid #005a9c;
+    padding-bottom: 5px;
 }
 
-/**
- * b. document.xml を解析して、段落とスタイルのリストを作成する
- */
-function parseDocument(docXml) {
-    const paragraphs = Array.from(docXml.getElementsByTagName('w:p'));
-    
-    return paragraphs.map(p => {
-        const styleNode = p.querySelector('pPr > pStyle');
-        const styleName = styleNode ? styleNode.getAttribute('w:val') : null;
-        
-        const textNodes = Array.from(p.getElementsByTagName('w:t'));
-        //
+#docx-upload {
+    margin: 20px 0;
+}
+
+/* --- ▼ V4で追加・変更 ▼ --- */
+#start-check-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #fff;
+    background-color: #007bff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-left: 10px;
+}
+
+#start-check-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+/* --- ▲ V4で追加・変更 ▲ --- */
+
+
+#results-container {
+    margin-top: 20px;
+    border: 1px solid #ccc;
+    background-color: #fff;
+    padding: 15px;
+}
+
+#results p {
+    margin: 8px 0;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+/* 判定結果のスタイル */
+.pass {
+    background-color: #e6f7e6;
+    color: #006400;
+    border: 1px solid #c3e6cb;
+}
+
+.fail {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.warn {
+    background-color: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeeba;
+}
+
+/* --- ▼ V4で追加 ▼ --- */
+/* 進捗表示用のスタイル */
+.progress {
+    background-color: #e6f0f7; /* 薄い青 */
+    color: #005a9c;
+    border: 1px solid #b3d1e8;
+}
+/* --- ▲ V4で追加 ▲ --- */
