@@ -62,7 +62,7 @@ async function checkDocx(file) {
     // 1. .docx (zip) を読み込む
     const arrayBuffer = await file.arrayBuffer();
     updateProgress('ファイルを解凍しています...');
-    const zip = await jszip.loadAsync(arrayBuffer);
+    const zip = await JSZip.loadAsync(arrayBuffer);
     
     // 2. document.xml と styles.xml を取り出す
     const docFile = zip.file('word/document.xml');
