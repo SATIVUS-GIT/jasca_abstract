@@ -3,29 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JASCA 発表要旨チェッカー (v3: 書式定義チェック)</title>
+    <title>JASCA 発表要旨チェッカー (v4: ボタン・進捗表示)</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <h1>JASCA 発表要旨チェッカー (v3: 書式定義チェック)</h1>
+    <h1>JASCA 発表要旨チェッカー (v4: 書式定義チェック)</h1>
     <p>
-        「要旨テンプレート」 に従って作成した Wordファイル (.docx) を選択してください。<br>
-        このツールは、<b>スタイルが正しく使われているか</b>に加え、<b>テンプレートのスタイル定義が改変されていないか</b>もチェックします。
+        「要旨テンプレート」 に従って作成した Wordファイル (.docx) を選択してください。
     </p>
 
     <input type="file" id="docx-upload" 
            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
     
+    <button id="start-check-btn" disabled>チェック開始</button>
+    
     <div id="results-container">
         <h2>チェック結果</h2>
         <div id="results">
-            <p>ここに結果が表示されます...</p>
+            <p>ファイルを選択してください...</p>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-
     <script src="script.js"></script>
 
 </body>
