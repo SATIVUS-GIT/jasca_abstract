@@ -3,27 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JASCA 発表要旨チェッカー (v8: ダッシュボード)</title>
+    <title>JASCA 発表要旨チェッカー (v9: 完成版)</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <h1>JASCA 発表要旨チェッカー (v8: ダッシュボード)</h1>
+    <h1>JASCA 発表要旨チェッカー (v9: 完成版)</h1>
     <p>
         発表要旨の Wordファイル (.docx) を選択してください。<br>
-        このツールは、ファイルから抽出した情報を規定のルールと比較し、目視確認を支援します。
+        抽出された情報と執筆要領のルールを比較表示します。
     </p>
 
-    <input type="file" id="docx-upload" 
-           accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
-    
-    <button id="start-check-btn" disabled>チェック開始</button>
+    <div class="controls">
+        <input type="file" id="docx-upload" 
+               accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+        <button id="start-check-btn" disabled>チェック開始</button>
+        <button id="reset-btn" style="display:none;">別のファイルをチェック</button>
+    </div>
     
     <div id="results-container">
         <h2>チェック結果</h2>
         <div id="results">
             <p>ファイルを選択してください...</p>
-            </div>
+        </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
