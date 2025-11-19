@@ -1,7 +1,8 @@
 body {
-    font-family: sans-serif;
+    font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
     margin: 20px;
     background-color: #f9f9f9;
+    color: #333;
 }
 
 h1, h2 {
@@ -10,21 +11,26 @@ h1, h2 {
     padding-bottom: 5px;
 }
 
-#docx-upload {
+.controls {
     margin: 20px 0;
+    display: flex;
+    gap: 10px;
+    align-items: center;
 }
 
-#start-check-btn {
-    display: inline-block;
+/* ボタンの共通スタイル */
+button {
     padding: 10px 20px;
     font-size: 16px;
     font-weight: bold;
     color: #fff;
-    background-color: #007bff;
     border: none;
     border-radius: 5px;
     cursor: pointer;
-    margin-left: 10px;
+}
+
+#start-check-btn {
+    background-color: #005a9c; /* 学会カラーっぽい青 */
 }
 
 #start-check-btn:disabled {
@@ -32,25 +38,29 @@ h1, h2 {
     cursor: not-allowed;
 }
 
+#reset-btn {
+    background-color: #6c757d; /* グレー */
+}
+
 #results-container {
     margin-top: 20px;
     border: 1px solid #ccc;
     background-color: #fff;
     padding: 15px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
-/* --- ▼ V8で変更 ▼ --- */
-/* <p> タグのスタイルを削除し、テーブルのスタイルを追加 */
+/* テーブルスタイル */
 #results table {
     width: 100%;
     border-collapse: collapse;
     margin-top: 10px;
-    font-size: 0.9em; /* テーブルの文字を少し小さく */
+    font-size: 0.95em;
 }
 
 #results th, #results td {
     border: 1px solid #ddd;
-    padding: 10px;
+    padding: 12px;
     text-align: left;
     vertical-align: top;
 }
@@ -58,42 +68,42 @@ h1, h2 {
 #results th {
     background-color: #f2f2f2;
     font-weight: bold;
+    width: 20%;
 }
 
-#results td:nth-child(4) { /* 判定列 */
+/* 判定列 */
+#results td:nth-child(4) { 
     text-align: center;
     font-weight: bold;
     font-size: 1.2em;
+    width: 50px;
 }
 
-/* カテゴリ行のスタイル */
 .category-row td {
     background-color: #e6f0f7;
     font-weight: bold;
     color: #005a9c;
-}
-/* --- ▲ V8で変更 ▲ --- */
-
-
-/* 判定結果のテキスト色 */
-.pass {
-    color: #006400;
+    padding-top: 20px;
 }
 
-.fail {
-    color: #721c24;
+/* 判定色 */
+.pass { color: #28a745; } /* 緑 */
+.fail { color: #dc3545; font-weight: bold; } /* 赤 */
+.warn { color: #ffc107; font-weight: bold; text-shadow: 0 0 1px #999; } /* 黄色 */
+
+/* 差異強調用 */
+.diff-highlight {
+    color: #dc3545;
+    background-color: #fff0f0;
+    padding: 2px 4px;
+    border-radius: 3px;
 }
 
-.warn {
-    color: #856404;
-}
-
-/* 進捗表示用のスタイル (これは <p> タグで表示するので残す) */
-#results p.progress {
+.progress {
     margin: 8px 0;
-    padding: 8px;
+    padding: 10px;
     border-radius: 4px;
     background-color: #e6f0f7;
     color: #005a9c;
-    border: 1px solid #b3d1e8;
+    border-left: 5px solid #005a9c;
 }
