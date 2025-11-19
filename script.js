@@ -1,13 +1,13 @@
 // --- DOM要素の取得 ---
 const docxUpload = document.getElementById('docx-upload');
 const startCheckBtn = document.getElementById('start-check-btn');
+const resetBtn = document.getElementById('reset-btn');
 const resultsDiv = document.getElementById('results');
 
 let selectedFile = null; 
 
-// --- イベントリスナーの設定 ---
+// --- イベントリスナー ---
 
-// 1. ファイルが選択された時の処理
 docxUpload.addEventListener('change', (event) => {
     selectedFile = event.target.files[0];
     if (selectedFile) {
@@ -19,101 +19,90 @@ docxUpload.addEventListener('change', (event) => {
     }
 });
 
-// 2. チェック開始ボタンが押された時の処理
 startCheckBtn.addEventListener('click', async () => {
     if (!selectedFile) return;
-
+    
+    // UI切り替え
     startCheckBtn.disabled = true;
+    docxUpload.disabled = true;
     
     try {
-        // v8: checkDocxからextractDocxDataに変更
-        // この関数は判定結果ではなく「抽出データ」を返す
         updateProgress('ファイル (.docx) を読み込んでいます...');
         const extractedData = await extractDocxData(selectedFile);
         
-        // v8: 判定と表示は displayResults が行う
-        updateProgress('抽出データをルールと比較し、ダッシュボードを作成中...');
+        updateProgress('データを解析中...');
         displayResults(extractedData);
+        
+        // 完了後にリセットボタン表示
+        resetBtn.style.display = 'inline-block';
+        startCheckBtn.style.display = 'none';
 
     } catch (error) {
-        console.error('DOCXの解析に失敗しました:', error);
-        resultsDiv.innerHTML = `<p class="fail">✗ 解析エラー: ${error.message} ファイルが破損しているか、標準的でない.docxファイルの可能性があります。</p>`;
-    } finally {
-        startCheckBtn.disabled = false;
+        console.error(error);
+        resultsDiv.innerHTML = `<p class="fail">✗ エラーが発生しました: ${error.message}<br>ファイルが破損しているか、Word形式ではない可能性があります。</p>`;
+        resetBtn.style.display = 'inline-block';
     }
 });
 
-/**
- * 進捗状況をUIに表示するヘルパー関数
- */
+resetBtn.addEventListener('click', () => {
+    location.reload(); // シンプルにリロードしてリセット
+});
+
 function updateProgress(message) {
-    // v8: 進捗表示は <p> タグで行う
     resultsDiv.innerHTML = `<p class="progress">${message}</p>`;
 }
 
-/**
- * .docxを解析し、抽出したデータをオブジェクトとして返すメイン関数 (v8)
- * @param {File} file - アップロードされた.docxファイル
- * @returns {Promise<Object>} 抽出データ
- */
+
+// --- データ抽出ロジック (v9) ---
+
 async function extractDocxData(file) {
     const extractedData = {};
-    
     const arrayBuffer = await file.arrayBuffer();
-    updateProgress('ファイルを解凍しています...');
     const zip = await JSZip.loadAsync(arrayBuffer); 
     
-    // 2. 関連するXMLファイルを取得
-    updateProgress('XML定義ファイル (本文・ヘッダー・フッター) を読み込み中...');
+    // XMLファイル取得
     const styleFile = zip.file('word/styles.xml');
     const docFile = zip.file('word/document.xml');
+    // 正規表現でヘッダー/フッターを全取得
     const headerFiles = zip.file(/word\/header.*\.xml/);
     const footerFiles = zip.file(/word\/footer.*\.xml/);
 
     if (!docFile || !styleFile) {
-        throw new Error('word/document.xml または word/styles.xml が見つかりません。');
+        throw new Error('必須ファイル (document.xml / styles.xml) が見つかりません。');
     }
 
-    // 3. 全XMLのコンテンツを並行して読み込む
-    const [
-        styleContent,
-        docContent,
-        headerContents,
-        footerContents
-    ] = await Promise.all([
+    // 読み込み
+    const [styleContent, docContent, headerContents, footerContents] = await Promise.all([
         styleFile.async('string'),
         docFile.async('string'),
         Promise.all(headerFiles.map(f => f.async('string'))),
         Promise.all(footerFiles.map(f => f.async('string')))
     ]);
     
-    // 4. XMLをパースする
-    updateProgress('スタイル定義を解析中...');
     const parser = new DOMParser();
+
+    // 1. スタイル解析 (フォント情報追加)
     const styleXml = parser.parseFromString(styleContent, 'application/xml');
-    extractedData.styles = extractStyles(styleXml); // (関数は後述)
+    extractedData.styles = extractStyles(styleXml);
     
-    updateProgress('本文書・ヘッダー・フッターを解析中...');
+    // 2. 文書構造解析
     const docXml = parser.parseFromString(docContent, 'application/xml');
     const headerXmls = headerContents.map(c => parser.parseFromString(c, 'application/xml'));
     const footerXmls = footerContents.map(c => parser.parseFromString(c, 'application/xml'));
 
-    // 5. 段落リストを作成
     const bodyParagraphs = parseDocument(docXml); 
     const headerParagraphs = headerXmls.flatMap(xml => parseDocument(xml));
     const footerParagraphs = footerXmls.flatMap(xml => parseDocument(xml));
     const allParagraphs = [...headerParagraphs, ...bodyParagraphs, ...footerParagraphs];
 
-    // --- ここからデータ抽出 (v8変更) ---
-    // 判定(check)ではなく、抽出(extract)したファクトを格納
-    
+    // 3. データ抽出実行
     extractedData.placeholders = extractPlaceholders(allParagraphs);
-    extractedData.layout = extractLayout(docXml);
+    extractedData.layout = extractLayout(docXml); // ロジック強化
     extractedData.styleUsage = extractStyleUsage(headerParagraphs, bodyParagraphs, footerParagraphs);
     extractedData.textLength = extractTextLength(bodyParagraphs);
     extractedData.prohibited = extractProhibitedItems(docXml, zip);
     extractedData.charWidth = extractHalfWidthChars(allParagraphs);
-    extractedData.keywords = extractKeywords(footerParagraphs);
+    extractedData.keywords = extractKeywords(footerParagraphs); // ロジック強化
     extractedData.indentation = extractIndentation(bodyParagraphs);
     extractedData.citations = extractInTextCitations(bodyParagraphs);
     extractedData.pageBreaks = extractPageBreaks(docXml); 
@@ -121,38 +110,32 @@ async function extractDocxData(file) {
     return extractedData;
 }
 
-// --- ここから下はv8の新しい表示/抽出関数群 ---
-
-/**
- * v8: 規定ルール
- * 執筆要領に基づき、比較対象となるルールを定義
- */
+// --- 規定ルール定義 ---
 const RULES = {
-    // スタイル定義
-    summery_title:     { bold: true, size: 24, align: 'center', name: '演題名' },
-    summery_subtitle:  { bold: true, size: 22, align: 'center', name: '副題 (オプション)' },
-    summery_name:      { bold: true, size: 22, align: 'center', name: '氏名(所属)' },
-    summery_body:      { size: 18, align: 'both', line: 260, name: '本文' },
-    summery_reference: { size: 18, align: 'both', line: 260, name: '参照文献 (オプション)' },
-    summery_keywords:  { bold: true, size: 22, align: 'left', name: 'キーワード' },
-    // レイアウト
+    // フォント定義を追加
+    summery_title:     { bold: true, size: 24, align: 'center', fontEn: 'Times New Roman', fontJp: 'MS Mincho', name: '演題名' },
+    summery_subtitle:  { bold: true, size: 22, align: 'center', fontEn: 'Times New Roman', fontJp: 'MS Mincho', name: '副題' },
+    summery_name:      { bold: true, size: 22, align: 'center', fontEn: 'Times New Roman', fontJp: 'MS Mincho', name: '氏名(所属)' },
+    summery_body:      { size: 18, align: 'both', line: 260, fontEn: 'Times New Roman', fontJp: 'MS Mincho', name: '本文' },
+    summery_reference: { size: 18, align: 'both', line: 260, fontEn: 'Times New Roman', fontJp: 'MS Mincho', name: '参照文献' },
+    summery_keywords:  { bold: true, size: 22, align: 'left', fontEn: 'Times New Roman', fontJp: 'MS Mincho', name: 'キーワード' },
+    
     layout: { columns: 2, name: '本文2段組' },
-    // 内容
     textLength: { min: 1500, name: '本文文字数 (日本語)' },
     textLengthEn: { min: 500, name: '本文文字数 (英語)' },
     keywords: { min: 3, max: 5, name: 'キーワード数' },
 };
 
-/**
- * v8: 抽出データとルールを比較し、HTMLテーブルを生成する
- */
+
+// --- 表示ロジック ---
+
 function displayResults(data) {
     let html = `
         <table id="check-table">
             <thead>
                 <tr>
-                    <th>チェック項目</th>
-                    <th>抽出された情報</th>
+                    <th>項目</th>
+                    <th>あなたのファイルの状況</th>
                     <th>規定のルール</th>
                     <th>判定</th>
                 </tr>
@@ -160,398 +143,290 @@ function displayResults(data) {
             <tbody>
     `;
 
-    // --- 1. スタイル定義 ---
+    // 1. スタイル定義 (フォントチェック追加)
     html += '<tr class="category-row"><td colspan="4">スタイル定義 (styles.xml)</td></tr>';
     for (const ruleId in RULES) {
         if (!ruleId.startsWith('summery_')) continue;
-        
         const rule = RULES[ruleId];
         const extracted = data.styles.get(ruleId);
-        let extractedStr = '';
-        let result = { class: 'pass', icon: '✓' };
+        
+        let resultClass = 'pass';
+        let resultIcon = '✓';
+        let details = [];
 
         if (!extracted) {
-            extractedStr = 'スタイル定義が見つかりません';
-            // オプションのスタイルは 'warn'
             if (ruleId.includes('subtitle') || ruleId.includes('reference')) {
-                result = { class: 'warn', icon: '△' };
+                resultClass = 'warn'; resultIcon = '-'; details.push('設定なし (オプション)');
             } else {
-                result = { class: 'fail', icon: '✗' };
+                resultClass = 'fail'; resultIcon = '✗'; details.push('<span class="diff-highlight">スタイル定義なし</span>');
             }
         } else {
-            const errors = [];
-            if (rule.bold && !extracted.bold) errors.push('太字でない');
-            if (rule.size && rule.size !== extracted.size) errors.push(`サイズ ${extracted.size/2}pt`);
-            if (rule.align && rule.align !== extracted.align) errors.push(`配置 ${extracted.align}`);
-            if (rule.line && rule.line !== extracted.line) errors.push('行間が13ptでない');
+            // 比較ロジック
+            if (rule.bold && !extracted.bold) details.push('<span class="diff-highlight">太字なし</span>');
+            if (rule.size && rule.size !== extracted.size) details.push(`<span class="diff-highlight">サイズ違い(${extracted.size/2}pt)</span>`);
+            if (rule.align && rule.align !== extracted.align) details.push(`<span class="diff-highlight">配置違い(${extracted.align})</span>`);
+            if (rule.line && rule.line !== extracted.line) details.push('<span class="diff-highlight">行間違い</span>');
             
-            if (errors.length > 0) {
-                extractedStr = errors.join(', ');
-                result = { class: 'fail', icon: '✗' };
+            // フォントチェック (MS Mincho または MS 明朝 を許容)
+            const fontJp = extracted.fontJp || '';
+            const fontEn = extracted.fontEn || '';
+            if (!fontJp.includes('Mincho') && !fontJp.includes('明朝')) details.push(`<span class="diff-highlight">和文フォント(${fontJp})</span>`);
+            if (!fontEn.toLowerCase().includes('times')) details.push(`<span class="diff-highlight">欧文フォント(${fontEn})</span>`);
+
+            if (details.length > 0) {
+                resultClass = 'fail'; resultIcon = '✗';
             } else {
-                extractedStr = `${rule.size/2}pt, ${rule.bold ? '太字, ' : ''}${rule.align}`;
+                details.push('書式OK');
             }
         }
-        
-        const ruleStr = `${rule.size/2}pt, ${rule.bold ? '太字, ' : ''}${rule.align}${rule.line ? ', 行間13pt' : ''}`;
+
         html += `<tr>
-            <td><strong>${rule.name}</strong> (${ruleId})</td>
-            <td class="${result.class}">${extractedStr}</td>
-            <td>${ruleStr}</td>
-            <td class="${result.class}">${result.icon}</td>
+            <td><strong>${rule.name}</strong><br><span style="font-size:0.8em;color:#666">${ruleId}</span></td>
+            <td>${details.join(', ')}</td>
+            <td>${rule.size/2}pt, ${rule.bold?'太字, ':''}${rule.align}<br>MS明朝 / Times New Roman</td>
+            <td class="${resultClass}">${resultIcon}</td>
         </tr>`;
     }
 
-    // --- 2. スタイル使用場所 ---
-    html += '<tr class="category-row"><td colspan="4">スタイル使用場所</td></tr>';
-    const usage = data.styleUsage;
-    const usageRules = [
-        { id: 'summery_title', name: '演題名', location: usage.header, rule: 'ヘッダー' },
-        { id: 'summery_name', name: '氏名(所属)', location: usage.header, rule: 'ヘッダー' },
-        { id: 'summery_body', name: '本文', location: usage.body, rule: '本文' },
-        { id: 'summery_keywords', name: 'キーワード', location: usage.footer, rule: 'フッター' },
+    // 2. スタイル使用状況
+    html += '<tr class="category-row"><td colspan="4">スタイルの適用場所</td></tr>';
+    const usageList = [
+        { id: 'summery_title', name: '演題名', target: data.styleUsage.header, place: 'ヘッダー' },
+        { id: 'summery_name', name: '氏名(所属)', target: data.styleUsage.header, place: 'ヘッダー' },
+        { id: 'summery_body', name: '本文', target: data.styleUsage.body, place: '本文' },
+        { id: 'summery_keywords', name: 'キーワード', target: data.styleUsage.footer, place: 'フッター' }
     ];
-    for (const item of usageRules) {
-        const found = item.location.includes(item.id);
-        const result = found ? { class: 'pass', icon: '✓' } : { class: 'fail', icon: '✗' };
+
+    usageList.forEach(item => {
+        const used = item.target.includes(item.id);
+        const resultClass = used ? 'pass' : 'fail';
         html += `<tr>
-            <td><strong>${item.name}</strong> (${item.id})</td>
-            <td class="${result.class}">${found ? '使用されています' : '見つかりません'}</td>
-            <td>${item.rule}で使用</td>
-            <td class="${result.class}">${result.icon}</td>
+            <td>${item.name}</td>
+            <td class="${resultClass}">${used ? '適用されています' : '<span class="diff-highlight">未適用</span>'}</td>
+            <td>${item.place}</td>
+            <td class="${resultClass}">${used ? '✓' : '✗'}</td>
         </tr>`;
-    }
+    });
 
-    // --- 3. レイアウト・内容 ---
+    // 3. レイアウトと内容
     html += '<tr class="category-row"><td colspan="4">レイアウト・内容</td></tr>';
-
-    // 2段組
-    const layout = data.layout;
-    const layoutResult = (layout.columns === 2) ? { class: 'pass', icon: '✓' } : { class: 'fail', icon: '✗' };
-    html += `<tr>
-        <td><strong>本文レイアウト</strong></td>
-        <td class="${layoutResult.class}">${layout.columns}段組</td>
-        <td>${RULES.layout.columns}段組</td>
-        <td class="${layoutResult.class}">${layoutResult.icon}</td>
-    </tr>`;
     
-    // 本文文字数
-    const len = data.textLength;
-    const isEnglish = len.type === 'en';
-    const lenRule = isEnglish ? RULES.textLengthEn : RULES.textLength;
-    const lenResult = (len.count >= lenRule.min) ? { class: 'pass', icon: '✓' } : { class: 'fail', icon: '✗' };
+    // レイアウト
+    const is2Cols = data.layout.columns === 2;
     html += `<tr>
-        <td><strong>${lenRule.name}</strong></td>
-        <td class="${lenResult.class}">${len.count}${isEnglish ? 'ワード' : '字'}</td>
-        <td>${lenRule.min}${isEnglish ? 'ワード' : '字'}以上</td>
-        <td class="${lenResult.class}">${lenResult.icon}</td>
+        <td>本文レイアウト</td>
+        <td class="${is2Cols ? 'pass' : 'fail'}">${data.layout.columns}段組</td>
+        <td>2段組</td>
+        <td class="${is2Cols ? 'pass' : 'fail'}">${is2Cols ? '✓' : '✗'}</td>
     </tr>`;
 
-    // キーワード数
+    // 文字数
+    const isEn = data.textLength.type === 'en';
+    const count = data.textLength.count;
+    const min = isEn ? RULES.textLengthEn.min : RULES.textLength.min;
+    const lenOk = count >= min;
+    html += `<tr>
+        <td>文字数 (${isEn ? '英語' : '日本語'})</td>
+        <td class="${lenOk ? 'pass' : 'fail'}">${count} ${isEn?'words':'文字'}</td>
+        <td>${min} ${isEn?'words':'文字'}以上</td>
+        <td class="${lenOk ? 'pass' : 'fail'}">${lenOk ? '✓' : '✗'}</td>
+    </tr>`;
+
+    // キーワード
     const kw = data.keywords;
-    const kwRule = RULES.keywords;
-    let kwResult = { class: 'pass', icon: '✓' };
-    let kwStr = `${kw.count}語`;
-    if (!kw.startsWith) {
-        kwStr = '「キーワード：」または「Keywords:」で始まっていません';
-        kwResult = { class: 'fail', icon: '✗' };
-    } else if (kw.count < kwRule.min || kw.count > kwRule.max) {
-        kwResult = { class: 'fail', icon: '✗' };
+    let kwMsg = `${kw.count}語`;
+    let kwOk = true;
+    if (!kw.foundHeader) {
+        kwMsg = '<span class="diff-highlight">「キーワード：」の表記なし</span>';
+        kwOk = false;
+    } else if (kw.count < 3 || kw.count > 5) {
+        kwMsg = `<span class="diff-highlight">${kw.count}語</span>`;
+        kwOk = false;
     }
     html += `<tr>
-        <td><strong>${kwRule.name}</strong></td>
-        <td class="${kwResult.class}">${kwStr}</td>
-        <td>${kwRule.min}～${kwRule.max}語</td>
-        <td class="${kwResult.class}">${kwResult.icon}</td>
+        <td>キーワード数</td>
+        <td class="${kwOk ? 'pass' : 'fail'}">${kwMsg}</td>
+        <td>3〜5語</td>
+        <td class="${kwOk ? 'pass' : 'fail'}">${kwOk ? '✓' : '✗'}</td>
     </tr>`;
 
-    // プレースホルダ
+    // プレースホルダ (残存チェック)
     const ph = data.placeholders;
-    const phResult = (ph.length === 0) ? { class: 'pass', icon: '✓' } : { class: 'fail', icon: '✗' };
+    const phOk = ph.length === 0;
     html += `<tr>
-        <td><strong>テンプレート指示文</strong></td>
-        <td class="${phResult.class}">${ph.length > 0 ? `${ph.length}件検出: ${ph.join(', ')}` : '検出されず'}</td>
-        <td>(残っていてはならない)</td>
-        <td class="${phResult.class}">${phResult.icon}</td>
+        <td>テンプレート指示文</td>
+        <td class="${phOk ? 'pass' : 'fail'}">${phOk ? '検出されず' : `<span class="diff-highlight">${ph.join(', ')} が残っています</span>`}</td>
+        <td>削除済みであること</td>
+        <td class="${phOk ? 'pass' : 'fail'}">${phOk ? '✓' : '✗'}</td>
     </tr>`;
-
-    // 禁止項目
-    const pro = data.prohibited;
-    const proResult = (pro.length === 0) ? { class: 'pass', icon: '✓' } : { class: 'fail', icon: '✗' };
-    html += `<tr>
-        <td><strong>禁止項目</strong></td>
-        <td class="${proResult.class}">${pro.length > 0 ? `${pro.join(', ')} を検出` : '検出されず'}</td>
-        <td>「注」「図版」は不可</td>
-        <td class="${proResult.class}">${proResult.icon}</td>
-    </tr>`;
-
-    // 字下げ
-    const indent = data.indentation;
-    let indentResult = { class: 'pass', icon: '✓' };
-    let indentStr = '全段落OK';
-    if (indent.total > 0 && indent.missing > 0) {
-        indentStr = `${indent.total}段落中、${indent.missing}段落で字下げなし`;
-        indentResult = { class: 'warn', icon: '⚠' };
-    } else if (indent.total === 0) {
-        indentStr = '本文テキストなし';
-        indentResult = { class: 'warn', icon: '⚠' };
-    }
-    html += `<tr>
-        <td><strong>本文の字下げ</strong></td>
-        <td class="${indentResult.class}">${indentStr}</td>
-        <td>全段落で全角スペース</td>
-        <td class="${indentResult.class}">${indentResult.icon}</td>
-    </tr>`;
-
-    // 全角英数
-    const width = data.charWidth;
-    const widthResult = (width.length === 0) ? { class: 'pass', icon: '✓' } : { class: 'warn', icon: '⚠' };
-    html += `<tr>
-        <td><strong>全角英数</strong></td>
-        <td class="${widthResult.class}">${width.length > 0 ? `${width.length}件検出 (例: ${width[0]})` : '検出されず'}</td>
-        <td>すべて半角</td>
-        <td class="${widthResult.class}">${widthResult.icon}</td>
-    </tr>`;
-    
-    // 参照文献
-    const cit = data.citations;
-    let citResult = { class: 'pass', icon: '✓' };
-    let citStr = '検出されず';
-    if (cit.hasRefList && !cit.hasBrackets) {
-        citStr = '参照文献リストあり / 本文引用 [ ] なし';
-        citResult = { class: 'warn', icon: '⚠' };
-    } else if (cit.hasBrackets && !cit.hasGoodFormat) {
-        citStr = '本文引用 [ ] あり / 書式が [姓 年: 頁] と不一致の可能性';
-        citResult = { class: 'warn', icon: '⚠' };
-    } else if (cit.hasGoodFormat) {
-        citStr = '本文引用 [姓 年: 頁] を検出';
-    }
-    html += `<tr>
-        <td><strong>参照文献と引用</strong></td>
-        <td class="${citResult.class}">${citStr}</td>
-        <td>本文とリストの対応</td>
-        <td class="${citResult.class}">${citResult.icon}</td>
-    </tr>`;
-
-    // 改ページ
-    const pb = data.pageBreaks;
-    const pbResult = (pb.length === 0) ? { class: 'pass', icon: '✓' } : { class: 'warn', icon: '⚠' };
-    html += `<tr>
-        <td><strong>改ページコード</strong></td>
-        <td class="${pbResult.class}">${pb.length > 0 ? `${pb.join(', ')} を検出` : '検出されず'}</td>
-        <td>(含まないのが望ましい)</td>
-        <td class="${pbResult.class}">${pbResult.icon}</td>
-    </tr>`;
-
 
     html += '</tbody></table>';
     resultsDiv.innerHTML = html;
 }
 
 
-// --- ここから下はv8のデータ抽出関数群 (v7のcheck関数を改変) ---
+// --- 詳細抽出関数 (v9) ---
 
-/**
- * v8: styles.xml を解析して、スタイル定義のマップを作成する (v7 parseStylesと同じ)
- */
+// 1. スタイル詳細抽出 (フォント情報追加)
 function extractStyles(styleXml) {
-    const stylesMap = new Map();
-    const styleNodes = styleXml.getElementsByTagName('w:style');
+    const map = new Map();
+    const nodes = styleXml.getElementsByTagName('w:style');
     
-    for (const node of styleNodes) {
+    for (const node of nodes) {
         if (node.getAttribute('w:type') !== 'paragraph') continue;
-        const styleId = node.getAttribute('w:styleId');
-        if (!styleId) continue;
+        const id = node.getAttribute('w:styleId');
+        if (!id) continue;
+
         const props = {};
         
-        const boldNode = node.querySelector('w\\:rPr > w\\:b');
-        if (boldNode) props.bold = true;
-        const sizeNode = node.querySelector('w\\:rPr > w\\:sz');
-        if (sizeNode) props.size = parseInt(sizeNode.getAttribute('w:val'), 10);
-        const alignNode = node.querySelector('w\\:pPr > w\\:jc');
-        if (alignNode) props.align = alignNode.getAttribute('w:val');
-        const lineNode = node.querySelector('w\\:pPr > w\\:spacing');
-        if (lineNode) props.line = parseInt(lineNode.getAttribute('w:line'), 10);
+        // 基本プロパティ (安全なアクセス ?. を使用)
+        if (node.querySelector('w\\:rPr > w\\:b')) props.bold = true;
         
-        stylesMap.set(styleId, props);
+        const sz = node.querySelector('w\\:rPr > w\\:sz')?.getAttribute('w:val');
+        if (sz) props.size = parseInt(sz, 10);
+        
+        const jc = node.querySelector('w\\:pPr > w\\:jc')?.getAttribute('w:val');
+        if (jc) props.align = jc;
+        
+        const spacing = node.querySelector('w\\:pPr > w\\:spacing')?.getAttribute('w:line');
+        if (spacing) props.line = parseInt(spacing, 10);
+
+        // フォント情報抽出 (v9追加)
+        const rFonts = node.querySelector('w\\:rPr > w\\:rFonts');
+        if (rFonts) {
+            props.fontEn = rFonts.getAttribute('w:ascii') || rFonts.getAttribute('w:hAnsi');
+            props.fontJp = rFonts.getAttribute('w:eastAsia');
+        }
+
+        map.set(id, props);
     }
-    return stylesMap;
+    return map;
 }
 
-/**
- * v8: document.xml (または header/footer.xml) を解析する (v7 parseDocumentと同じ)
- */
-function parseDocument(docXml) {
-    const paragraphs = Array.from(docXml.getElementsByTagName('w:p'));
-    
-    return paragraphs.map(p => {
-        const styleNode = p.querySelector('w\\:pPr > w\\:pStyle');
-        const styleName = styleNode ? styleNode.getAttribute('w:val') : null;
-        const textNodes = Array.from(p.getElementsByTagName('w:t'));
-        const text = textNodes.map(t => t.textContent).join('');
-        return { style: styleName, text: text, node: p };
+// 2. 文書解析
+function parseDocument(xml) {
+    const paras = Array.from(xml.getElementsByTagName('w:p'));
+    return paras.map(p => {
+        const style = p.querySelector('w\\:pPr > w\\:pStyle')?.getAttribute('w:val');
+        const texts = Array.from(p.getElementsByTagName('w:t'));
+        const text = texts.map(t => t.textContent).join('');
+        return { style, text, node: p };
     });
 }
 
-/**
- * v8: プレースホルダ（テンプレートの指示文）が残っていないか
- */
-function extractPlaceholders(allParagraphs) {
-    const found = [];
-    const fullText = allParagraphs.map(p => p.text).join('');
+// 3. レイアウト解析 (v9: 全セクションをスキャン)
+function extractLayout(docXml) {
+    // w:sectPr は w:body の直下(最後) または 各 w:p/w:pPr の中に存在する
+    const sectPrs = Array.from(docXml.getElementsByTagName('w:sectPr'));
+    
+    // どれか1つでも「2段組 (w:num="2")」があればOKとみなす
+    // (厳密には「本文エリア」の設定を見るべきだが、要旨A4一枚ならこれで十分)
+    const hasTwoCols = sectPrs.some(sect => {
+        const cols = sect.getElementsByTagName('w:cols')[0];
+        return cols && cols.getAttribute('w:num') === '2';
+    });
 
-    if (fullText.includes('※ ここに「演題名」を書いてください')) found.push('「演題名」指示文');
-    if (fullText.includes('（←消去してご使用ください）')) found.push('「消去して...」指示文');
-    if (fullText.includes('□□□□')) found.push('□□□□');
-    if (fullText.includes('発表者氏名（所属）')) found.push('「発表者氏名...」');
+    return { columns: hasTwoCols ? 2 : 1 };
+}
+
+// 4. キーワード解析 (v9: 表記ゆれ対応)
+function extractKeywords(footerParas) {
+    const kwPara = footerParas.find(p => p.style === 'summery_keywords');
+    if (!kwPara) return { count: 0, foundHeader: false };
+
+    const text = kwPara.text.trim();
+    // 正規表現で「キーワード」の後の区切り文字（全角コロン、半角コロン、スペース等）を柔軟に判定
+    // 例: "Keywords:", "キーワード：", "キーワード "
+    const match = text.match(/^(?:キーワード|Keywords)[:：\s]+(.*)$/i);
+    
+    if (match) {
+        const content = match[1]; // "A, B, C" の部分
+        // 読点(、) または カンマ(,) で分割
+        const words = content.split(/[、,]+/).filter(w => w.trim().length > 0);
+        return { count: words.length, foundHeader: true };
+    }
+    
+    return { count: 0, foundHeader: false };
+}
+
+// 5. プレースホルダ検出
+function extractPlaceholders(paras) {
+    const found = [];
+    const text = paras.map(p => p.text).join('');
+    
+    if (text.includes('ここに「演題名」')) found.push('演題名指示文');
+    if (text.includes('消去してご使用')) found.push('消去指示文');
+    if (text.includes('□□□')) found.push('ダミー四角(□)');
+    if (text.includes('発表者氏名（所属）')) found.push('氏名プレースホルダ');
     
     return found;
 }
 
-/**
- * v8: 本文が2段組かチェック
- */
-function extractLayout(docXml) {
-    const cols = docXml.querySelector('w\\:body > w\\:sectPr w\\:cols');
-    if (cols) {
-        return { columns: parseInt(cols.getAttribute('w:num'), 10) || 1 };
-    }
-    return { columns: 1 };
-}
-
-/**
- * v8: 必須スタイルが使われている場所
- */
-function extractStyleUsage(headerParagraphs, bodyParagraphs, footerParagraphs) {
+// 6. スタイル使用状況
+function extractStyleUsage(header, body, footer) {
+    const getStyles = (list) => list.map(p => p.style).filter(Boolean);
     return {
-        header: [...new Set(headerParagraphs.map(p => p.style).filter(Boolean))],
-        body:   [...new Set(bodyParagraphs.map(p => p.style).filter(Boolean))],
-        footer: [...new Set(footerParagraphs.map(p => p.style).filter(Boolean))]
+        header: getStyles(header),
+        body: getStyles(body),
+        footer: getStyles(footer)
     };
 }
 
-/**
- * v8: 本文の最低字数
- */
-function extractTextLength(bodyParagraphs) {
-    const bodyText = bodyParagraphs
+// 7. 本文文字数
+function extractTextLength(paras) {
+    const bodyText = paras
         .filter(p => p.style === 'summery_body')
         .map(p => p.text)
         .join('');
     
-    if (bodyText.length === 0) {
-         return { count: 0, type: 'jp' };
-    }
+    const isEn = (bodyText.match(/[a-zA-Z]/g) || []).length > (bodyText.length / 2);
+    const count = isEn 
+        ? bodyText.trim().split(/\s+/).filter(Boolean).length 
+        : bodyText.replace(/\s/g, '').length;
 
-    const charCount = bodyText.replace(/\s/g, '').length;
-    const alphaRatio = (bodyText.match(/[a-zA-Z]/g) || []).length / (bodyText.length || 1);
-
-    if (alphaRatio > 0.5) { // 英語
-        const wordCount = bodyText.trim().split(/\s+/).filter(Boolean).length;
-        return { count: wordCount, type: 'en' };
-    } else { // 日本語
-        return { count: charCount, type: 'jp' };
-    }
+    return { count, type: isEn ? 'en' : 'jp' };
 }
 
-/**
- * v8: 禁止項目 (注、図版)
- */
+// 8. 禁止項目
 function extractProhibitedItems(docXml, zip) {
     const text = docXml.documentElement.textContent;
-    const hasNote = text.includes('注');
-    const hasDrawing = docXml.getElementsByTagName('w:drawing').length > 0 || docXml.getElementsByTagName('w:pict').length > 0;
-    const mediaFiles = zip.folder('word/media');
+    const errors = [];
+    if (text.includes('注')) errors.push('「注」');
+    
+    const drawings = docXml.getElementsByTagName('w:drawing').length 
+                   + docXml.getElementsByTagName('w:pict').length;
+    
+    // 画像ファイルが word/media フォルダにあるかも確認
+    const media = zip.folder('word/media');
+    const hasMedia = media && Object.keys(media.files).length > 0;
 
-    let errors = [];
-    if (hasNote) errors.push('「注」');
-    if (hasDrawing || (mediaFiles && Object.keys(mediaFiles.files).length > 0)) {
-        errors.push('図版 (写真・図・表)');
-    }
+    if (drawings > 0 || hasMedia) errors.push('図表・画像');
+    
     return errors;
 }
 
-/**
- * v8: アルファベットと数字は、すべて半角か
- */
-function extractHalfWidthChars(allParagraphs) {
-    const fullText = allParagraphs.map(p => p.text).join('');
-    const fullWidthChars = fullText.match(/[０-９Ａ-Ｚａ-ｚ]/g);
-    
-    if (fullWidthChars) {
-        // 重複を除外して返す
-        return [...new Set(fullWidthChars)];
-    }
-    return [];
+// 9. 全角英数
+function extractHalfWidthChars(paras) {
+    const text = paras.map(p => p.text).join('');
+    return text.match(/[０-９Ａ-Ｚａ-ｚ]/g) || [];
 }
 
-/**
- * v8: キーワードの書式
- */
-function extractKeywords(footerParagraphs) {
-    const keywordPara = footerParagraphs.find(p => p.style === 'summery_keywords');
-    if (!keywordPara) {
-        return { count: 0, startsWith: false, text: 'スタイル未適用' };
-    }
-    
-    const text = keywordPara.text.trim();
-    if (text.startsWith('キーワード：')) {
-        const count = text.replace('キーワード：', '').split('、').filter(s => s.trim().length > 0).length;
-        return { count: count, startsWith: true, text: text };
-    } else if (text.startsWith('Keywords:')) {
-        const count = text.replace('Keywords:', '').split(',').filter(s => s.trim().length > 0).length;
-        return { count: count, startsWith: true, text: text };
-    } else {
-        return { count: 0, startsWith: false, text: text };
-    }
+// 10. 字下げ
+function extractIndentation(paras) {
+    // 本文段落のみ
+    return paras.filter(p => p.style === 'summery_body' && p.text.trim().length > 0)
+                .map(p => p.text.startsWith('　')); // 全角スペースで始まるか
 }
 
-/**
- * v8: 本文の段落字下げ
- */
-function extractIndentation(bodyParagraphs) {
-    const bodyParas = bodyParagraphs.filter(p => p.style === 'summery_body' && p.text.length > 0);
-    const notIndented = bodyParas.filter(p => !p.text.startsWith('　')); // 全角スペース
-
-    return { total: bodyParas.length, missing: notIndented.length };
+// 11. 引用
+function extractInTextCitations(paras) {
+    const text = paras.filter(p => p.style === 'summery_body').map(p => p.text).join('');
+    // [Name Year: Page] format
+    const hasFormat = /\[[^\]]+\s\d{4}:\s?[^\]]+\]/.test(text);
+    return { hasFormat };
 }
 
-/**
- * v8: 参照文献の挙示方法
- */
-function extractInTextCitations(bodyParagraphs) {
-    const bodyText = bodyParagraphs
-        .filter(p => p.style === 'summery_body')
-        .map(p => p.text)
-        .join('');
-    
-    const citationRegex = /\[[^\]]+ \d{4}: [^\]]+\]/g; 
-    const fullBracketRegex = /\[.*?\]/g;
-    
-    const hasRefList = bodyParagraphs.some(p => p.style === 'summery_reference' && p.text.length > 0) || 
-                       bodyParagraphs.some(p => p.text.includes('参照文献'));
-
-    return {
-        hasRefList: hasRefList,
-        hasBrackets: fullBracketRegex.test(bodyText),
-        hasGoodFormat: citationRegex.test(bodyText)
-    };
-}
-
-/**
- * v8: 改ページコード
- */
+// 12. 改ページ
 function extractPageBreaks(docXml) {
-    const found = [];
-    const pageBreak = docXml.querySelector('w\\:br[w\\:type="page"]'); 
-    const sectionBreak = docXml.querySelector('w\\:sectPr'); 
-    
-    if (pageBreak) {
-        found.push('改ページコード');
-    }
-    if (sectionBreak && !docXml.querySelector('w\\:sectPr w\\:cols')) {
-         // 2段組以外のセクション区切りは改ページとみなす
-         found.push('セクション区切り');
-    }
-    return found;
+    return docXml.getElementsByTagName('w:br'); // w:type="page" チェックなどは簡易的に省略し存在有無のみ返す運用も可
 }
